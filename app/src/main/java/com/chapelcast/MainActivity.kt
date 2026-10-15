@@ -29,8 +29,8 @@ class Server(private val act: Activity, port: Int) : NanoHTTPD(port) {
     private val mediaDir = File(act.filesDir, "chapelcast-media").apply { mkdirs() }
     private val page: String by lazy {
         act.assets.open("index.html").bufferedReader().readText()
-            .replace("</head>", "<link rel=\"stylesheet\" href=\"/studio-v13.css\"></head>")
-            .replace("</body>", "<script src=\"/media-suite-v12.js\"></script><script src=\"/studio-v13.js\"></script></body>")
+            .replace("</head>", "<link rel=\"stylesheet\" href=\"/studio-v13.css\"><link rel=\"stylesheet\" href=\"/theme-editor-v14.css\"></head>")
+            .replace("</body>", "<script src=\"/media-suite-v12.js\"></script><script src=\"/studio-v13.js\"></script><script src=\"/theme-editor-v14.js\"></script></body>")
     }
 
     override fun serve(s: IHTTPSession): Response {
@@ -45,7 +45,7 @@ class Server(private val act: Activity, port: Int) : NanoHTTPD(port) {
             if (!f.exists()) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No download available")
             return newChunkedResponse(Response.Status.OK, "text/plain; charset=utf-8", FileInputStream(f))
         }
-        if (s.uri == "/media-suite-v12.js" || s.uri == "/studio-v13.js" || s.uri == "/studio-v13.css") {
+        if (s.uri == "/media-suite-v12.js" || s.uri == "/studio-v13.js" || s.uri == "/studio-v13.css" || s.uri == "/theme-editor-v14.js" || s.uri == "/theme-editor-v14.css") {
             val name = s.uri.removePrefix("/")
             val type = if (name.endsWith(".css")) "text/css; charset=utf-8" else "application/javascript; charset=utf-8"
             val data = act.assets.open(name).bufferedReader().readText()
