@@ -24,7 +24,10 @@ fun findIp(): String {
 
 class Server(private val act: Activity, port: Int) : NanoHTTPD(port) {
     @Volatile private var state = """{"mode":"full","theme":"t-night","text":"","ref":""}"""
-    private val page: String by lazy { act.assets.open("index.html").bufferedReader().readText() }
+    private val page: String by lazy {
+        act.assets.open("index.html").bufferedReader().readText()
+            .replace("</body>", "<script src=\"/media-suite-v12.js\"></script></body>")
+    }
 
     override fun serve(s: IHTTPSession): Response {
         if (s.uri == "/state") return newFixedLengthResponse(Response.Status.OK, "application/json", state)
@@ -36,6 +39,10 @@ class Server(private val act: Activity, port: Int) : NanoHTTPD(port) {
         if (s.uri == "/dl") {
             val f = File(act.cacheDir, "dl.xml")
             return newChunkedResponse(Response.Status.OK, "text/plain; charset=utf-8", FileInputStream(f))
+        }
+        if (s.uri == "/media-suite-v12.js") {
+            val js = act.assets.open("media-suite-v12.js").bufferedReader().readText()
+            return newFixedLengthResponse(Response.Status.OK, "application/javascript", js)
         }
         val ra = s.remoteIpAddress ?: ""
         val local = ra == "127.0.0.1" || ra == "::1" || ra.startsWith("0:0:0:0:0:0:0:1") || ra == findIp()
