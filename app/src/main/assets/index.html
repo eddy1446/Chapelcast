@@ -40,7 +40,7 @@ body.output #app{display:none}body:not(.output) #o{display:none}
 
 <div id="app">
   <iframe id="pv" src="?view=output"></iframe>
-  <small id="url"></small>
+  <div id="url" style="text-align:center;padding:8px;border:1px solid var(--line);border-radius:6px"></div>
   <div class="row">
     <button id="mFull" class="on">Full screen</button>
     <button id="mLower">Lower third</button>
@@ -50,7 +50,7 @@ body.output #app{display:none}body:not(.output) #o{display:none}
     <select id="theme"><option value="t-night">Night</option><option value="t-paper">Paper</option><option value="t-royal">Royal</option><option value="t-key">Green key</option></select>
     <select id="bible"></select>
     <button id="imp">Add Bible (XML)</button>
-    <input type="file" id="file" accept=".xml" class="hide">
+    <input type="file" id="file" class="hide">
   </div>
   <div class="row"><button id="tS" class="on">Scripture</button><button id="tL">Songs</button></div>
 
@@ -227,10 +227,10 @@ $('#tS').onclick=()=>{$('#pS').classList.remove('hide');$('#pL').classList.add('
 $('#tL').onclick=()=>{$('#pL').classList.remove('hide');$('#pS').classList.add('hide');$('#tL').classList.add('on');$('#tS').classList.remove('on')};
 
 /* boot */
-$('#url').textContent='Output screen: '+location.origin.replace('localhost','<phone-ip>')+'/output';
+const IP=(window.Android&&Android.ip())||'';
+$('#url').innerHTML=IP?'Projector address:<br><b style="font-size:22px;color:var(--gold)">'+IP+':8080</b>':'Connect to wifi to see the address';
 drawSongs();
 (async()=>{await listBibles();const n=$('#bible').value;if(n&&n!=='No Bible yet')await useBible(n);push()})();
 }
 </script>
-</body></html>
-      
+</body>
