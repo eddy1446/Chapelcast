@@ -19,6 +19,7 @@ button{cursor:pointer}button.on{background:var(--gold);color:#1a1405;border-colo
 small{color:var(--mute)}
 textarea{width:100%;min-height:110px}
 .hide{display:none!important}
+.pick{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
 /* ---------- output ---------- */
 .o{position:fixed;inset:0;overflow:hidden;background:var(--bg);color:var(--fg2);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vw;font-family:Georgia,'Times New Roman',serif}
 #txt{line-height:1.3;max-width:90vw;transition:opacity .25s}
@@ -50,8 +51,15 @@ body.output #app{display:none}body:not(.output) #o{display:none}
     <select id="theme"><option value="t-night">Night</option><option value="t-paper">Paper</option><option value="t-royal">Royal</option><option value="t-key">Green key</option></select>
     <select id="bible"></select>
     <button id="imp">Add Bible (XML)</button>
-    <input type="file" id="file" class="hide">
+    <button id="dl">Get online</button>
+    <input type="file" id="file" class="pick">
   </div>
+  <div id="pD" class="hide">
+    <select id="dsel" style="width:100%;margin-bottom:6px"></select>
+    <input id="durl" placeholder="or paste a link to a Zefania .xml or .zip" style="width:100%;margin-bottom:6px" autocapitalize="off">
+    <button id="dgo" style="width:100%">Download</button>
+  </div>
+  <div id="msg" style="min-height:1.4em;color:var(--gold)"></div>
   <div class="row"><button id="tS" class="on">Scripture</button><button id="tL">Songs</button></div>
 
   <div id="pS">
@@ -114,9 +122,10 @@ function load(arr){
 }
 function parseZ(xml,fname){
   const d=new DOMParser().parseFromString(xml,'text/xml'),out=[];
-  d.querySelectorAll('BIBLEBOOK').forEach(bk=>{const b=+bk.getAttribute('bnumber');
-    bk.querySelectorAll('CHAPTER').forEach(ch=>{const c=+ch.getAttribute('cnumber');
-      ch.querySelectorAll('VERS').forEach(v=>out.push([b,c,+v.getAttribute('vnumber'),v.textContent.replace(/\s+/g,' ').trim()]))})});
+  if(d.querySelector('parsererror'))throw new Error('XML could not be read');
+  d.querySelectorAll('BIBLEBOOK').forEach((bk,bi)=>{const b=+bk.getAttribute('bnumber')||bi+1;
+    bk.querySelectorAll('CHAPTER').forEach((ch,ci)=>{const c=+ch.getAttribute('cnumber')||ci+1;
+      ch.querySelectorAll('VERS').forEach((v,vi)=>out.push([b,c,+v.getAttribute('vnumber')||vi+1,v.textContent.replace(/\s+/g,' ').trim()]))})});
   const t=d.querySelector('INFORMATION title');
   return{name:(t&&t.textContent.trim())||d.documentElement.getAttribute('biblename')||fname,v:out};
 }
@@ -194,16 +203,42 @@ async function listBibles(sel){
 }
 async function useBible(n){const d=await idb('get','b:'+n);if(d)load(d)}
 $('#bible').onchange=e=>useBible(e.target.value).then(search);
-$('#imp').onclick=()=>$('#file').click();
-$('#file').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;
-  $('#res').innerHTML='<div class="v"><small>Indexing…</small></div>';
-  const p=parseZ(await f.text(),f.name.replace(/\.xml$/i,''));
-  if(!p.v.length){$('#res').innerHTML='<div class="v">That file has no Zefania verses (BIBLEBOOK/CHAPTER/VERS).</div>';return}
-  await idb('put','b:'+p.name,p.v);
-  const names=JSON.parse(localStorage.cc_bibles||'[]');if(!names.includes(p.name))names.push(p.name);
-  localStorage.cc_bibles=JSON.stringify(names);load(p.v);await listBibles(p.name);
-  $('#res').innerHTML='<div class="v"><small>'+p.v.length+' verses loaded.</small></div>';
+const msg=t=>{$('#msg').textContent=t};
+async function addBible(xml,fname){
+  try{
+    msg('Indexing…');await new Promise(r=>setTimeout(r,50));
+    const p=parseZ(xml,fname);
+    if(!p.v.length){msg('No verses found. The file must be Zefania XML (BIBLEBOOK / CHAPTER / VERS).');return}
+    await idb('put','b:'+p.name,p.v);
+    const names=JSON.parse(localStorage.cc_bibles||'[]');if(!names.includes(p.name))names.push(p.name);
+    localStorage.cc_bibles=JSON.stringify(names);load(p.v);await listBibles(p.name);
+    msg(p.name+': '+p.v.length+' verses loaded. Type a verse to search.');
+  }catch(err){msg('Error: '+((err&&err.message)||err))}
+}
+$('#imp').onclick=()=>{msg('Opening file picker…');$('#file').click()};
+$('#file').onchange=e=>{
+  const f=e.target.files[0];if(!f){msg('No file chosen');return}
+  msg('Reading '+f.name+' ('+Math.round(f.size/1024)+' KB)…');
+  const r=new FileReader();
+  r.onload=()=>{addBible(r.result,f.name.replace(/\.[^.]+$/,''));e.target.value=''};
+  r.onerror=()=>msg('Could not read that file');
+  r.readAsText(f);
+};
+/* Get online: the app downloads the file (handles .zip too), then the page reads it from /dl */
+const LIST=[["American Standard Version (ASV)","eng-asv"],["Darby Bible","eng-darby"],["Douay-Rheims (DRA)","eng-dra"],["Young's Literal (NT only)","eng-ylt"],["Dutch Statenvertaling","dut-statenvertaling"],["Czech Kralicka","cze-bkr"],["Russian Synodal","rus-synodal"]];
+$('#dsel').innerHTML=LIST.map(x=>'<option value="https://raw.githubusercontent.com/seven1m/open-bibles/master/'+x[1]+'.zefania.xml">'+x[0]+'</option>').join('');
+$('#dl').onclick=()=>$('#pD').classList.toggle('hide');
+$('#dgo').onclick=()=>{
+  if(!(window.Android&&Android.download)){msg('Downloading works only inside the installed app');return}
+  const url=$('#durl').value.trim()||$('#dsel').value;
+  msg('Downloading…');Android.download(url);
+  const t=setInterval(async()=>{
+    const st=Android.status();if(st==='busy')return;
+    clearInterval(t);
+    if(st!=='done'){msg('Download failed: '+st.replace('error: ',''));return}
+    try{const x=await (await fetch('/dl')).text();await addBible(x,url.split('/').pop().replace(/\.(zefania\.)?(xml|zip)$/i,''))}
+    catch(err){msg('Failed: '+err.message)}
+  },600);
 };
 
 /* Songs */
@@ -233,4 +268,4 @@ drawSongs();
 (async()=>{await listBibles();const n=$('#bible').value;if(n&&n!=='No Bible yet')await useBible(n);push()})();
 }
 </script>
-</body>
+</body></html>
