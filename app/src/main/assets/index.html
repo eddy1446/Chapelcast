@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChapelCast</title>
+<style>
+:root{--ink:#12161d;--panel:#1b212b;--line:#2c3544;--fg:#e9e6dc;--mute:#8b94a3;--gold:#e2b04a}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--ink);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+button,select,input,textarea{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:9px 11px}
+button{cursor:pointer}button.on{background:var(--gold);color:#1a1405;border-color:var(--gold);font-weight:600}
+#app{max-width:760px;margin:auto;padding:10px;display:grid;gap:10px}
+.row{display:flex;gap:6px;flex-wrap:wrap}.row>*{flex:1}
+#pv{width:100%;aspect-ratio:16/9;border:1px solid var(--line);border-radius:6px;background:#000}
+#q{width:100%;font-size:20px;padding:12px}
+#res{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.v{padding:9px 11px;border-bottom:1px solid var(--line);cursor:pointer}
+.v b{color:var(--gold);margin-right:6px}.v.hit{background:#2a2412}
+.v:active{background:#2c3544}
+small{color:var(--mute)}
+textarea{width:100%;min-height:110px}
+.hide{display:none!important}
+/* ---------- output ---------- */
+.o{position:fixed;inset:0;overflow:hidden;background:var(--bg);color:var(--fg2);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vw;font-family:Georgia,'Times New Roman',serif}
+#txt{line-height:1.3;max-width:90vw;transition:opacity .25s}
+#ref{margin-top:2.4vw;font:600 2.6vw system-ui,sans-serif;color:var(--ac);transition:opacity .25s}
+.t-night{--bg:#0d1220;--fg2:#f4f1e8;--ac:#e8b04b;--bar:rgba(13,18,32,.9)}
+.t-paper{--bg:#f6f2e6;--fg2:#1c1a17;--ac:#8a2d1c;--bar:rgba(246,242,230,.94)}
+.t-royal{--bg:linear-gradient(160deg,#2a1458,#0f1b4d);--fg2:#fff;--ac:#f2c94c;--bar:rgba(30,18,80,.9)}
+.t-key{--bg:#00b140;--fg2:#fff;--ac:#fff;--bar:rgba(0,0,0,.0)}
+.t-key #txt,.t-key #ref{text-shadow:0 .2vw .6vw #000}
+.o.lower{background:transparent;justify-content:flex-end;padding:0}
+.o.lower #txt,.o.lower #ref{width:100%;max-width:none}
+.o.lower #txt{background:var(--bar);padding:1.6vw 6vw 1vw;text-align:left}
+.o.lower #ref{margin:0;padding:.7vw 6vw 1.6vw;background:var(--bar);text-align:left;font-size:2vw}
+.o.blank #txt,.o.blank #ref{opacity:0}
+body.output #app{display:none}body:not(.output) #o{display:none}
+</style></head>
+<body>
+<div id="o" class="o t-night"><div id="txt"></div><div id="ref"></div></div>
+
+<div id="app">
+  <iframe id="pv" src="?view=output"></iframe>
+  <small id="url"></small>
+  <div class="row">
+    <button id="mFull" class="on">Full screen</button>
+    <button id="mLower">Lower third</button>
+    <button id="mBlank">Clear</button>
+  </div>
+  <div class="row">
+    <select id="theme"><option value="t-night">Night</option><option value="t-paper">Paper</option><option value="t-royal">Royal</option><option value="t-key">Green key</option></select>
+    <select id="bible"></select>
+    <button id="imp">Add Bible (XML)</button>
+    <input type="file" id="file" accept=".xml" class="hide">
+  </div>
+  <div class="row"><button id="tS" class="on">Scripture</button><button id="tL">Songs</button></div>
+
+  <div id="pS">
+    <input id="q" placeholder="jn 3 16  ·  ps 23  ·  1co 13:4-7  ·  or words" autocomplete="off" autocapitalize="off">
+    <div class="row" style="margin:6px 0"><button id="prev">◀ Prev</button><button id="next">Next ▶</button></div>
+    <div id="res"></div>
+  </div>
+
+  <div id="pL" class="hide">
+    <select id="songs" style="width:100%;margin-bottom:6px"></select>
+    <div id="slides" style="border:1px solid var(--line);border-radius:6px;max-height:36vh;overflow:auto"></div>
+    <details style="margin-top:8px"><summary>Add song</summary>
+      <input id="st" placeholder="Title" style="width:100%;margin:6px 0">
+      <textarea id="sl" placeholder="Paste lyrics. A blank line starts a new slide."></textarea>
+      <button id="ss" style="width:100%;margin-top:6px">Save song</button>
+    </details>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const OUT=/output|view=output/.test(location.href);
+document.body.classList.toggle('output',OUT);
+
+/* ---------- output side ---------- */
+const FS=(n,l)=>l?(n>200?2.2:n>120?2.6:3.2):(n>320?2.7:n>200?3.4:n>110?4.4:5.6);
+function render(s){
+  if(!s)return;
+  const o=$('#o');o.className='o '+(s.theme||'t-night')+' '+(s.mode||'full');
+  const t=$('#txt');t.textContent=s.text||'';t.style.fontSize=FS((s.text||'').length,s.mode==='lower')+'vw';
+  $('#ref').textContent=s.ref||'';
+}
+if(OUT){
+  fetch('/state').then(r=>r.json()).then(render).catch(()=>render(JSON.parse(localStorage.cc_state||'null')));
+  addEventListener('storage',e=>{if(e.key==='cc_state')render(JSON.parse(e.newValue))});
+  let last='';setInterval(()=>fetch('/state').then(r=>r.text()).then(t=>{if(t!==last){last=t;render(JSON.parse(t))}}).catch(()=>{}),600);
+}
+
+/* ---------- controller side ---------- */
+if(!OUT){
+const NAMES="Genesis,Exodus,Leviticus,Numbers,Deuteronomy,Joshua,Judges,Ruth,1 Samuel,2 Samuel,1 Kings,2 Kings,1 Chronicles,2 Chronicles,Ezra,Nehemiah,Esther,Job,Psalms,Proverbs,Ecclesiastes,Song of Solomon,Isaiah,Jeremiah,Lamentations,Ezekiel,Daniel,Hosea,Joel,Amos,Obadiah,Jonah,Micah,Nahum,Habakkuk,Zephaniah,Haggai,Zechariah,Malachi,Matthew,Mark,Luke,John,Acts,Romans,1 Corinthians,2 Corinthians,Galatians,Ephesians,Philippians,Colossians,1 Thessalonians,2 Thessalonians,1 Timothy,2 Timothy,Titus,Philemon,Hebrews,James,1 Peter,2 Peter,1 John,2 John,3 John,Jude,Revelation".split(',');
+const ABBR="gn,ex,lv,nm,dt,jos,jdg,rt,1sa,2sa,1ki,2ki,1ch,2ch,ezr,neh,est,job,ps,pr,ec,ss,is,jer,la,eze,dan,hos,joe,am,ob,jon,mic,na,hab,zep,hag,zec,mal,mt,mk,lk,jn,ac,ro,1co,2co,ga,eph,php,col,1th,2th,1ti,2ti,tit,phm,heb,jas,1pe,2pe,1jn,2jn,3jn,jud,re".split(',');
+const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,'');
+const NN=NAMES.map(norm);
+function book(q){q=norm(q);if(!q)return 0;let i=ABBR.indexOf(q);if(i<0)i=NN.indexOf(q);if(i<0)i=NN.findIndex(n=>n.startsWith(q));return i+1}
+
+/* storage: IndexedDB holds the parsed Bibles (fast JSON load, no XML re-parse) */
+const dbp=()=>new Promise((r,j)=>{const q=indexedDB.open('cc',1);q.onupgradeneeded=()=>q.result.createObjectStore('k');q.onsuccess=()=>r(q.result);q.onerror=j});
+const idb=async(m,k,v)=>{const d=await dbp();return new Promise(r=>{const s=d.transaction('k',m==='get'?'readonly':'readwrite').objectStore('k');const q=m==='get'?s.get(k):s.put(v,k);q.onsuccess=()=>r(q.result)})};
+
+/* in-memory indexes */
+let V=[],C=new Map(),K=new Map(),W=new Map();
+function load(arr){
+  V=arr;C.clear();K.clear();W.clear();
+  arr.forEach((r,i)=>{
+    K.set(r[0]+':'+r[1]+':'+r[2],i);
+    const ck=r[0]+':'+r[1],e=C.get(ck);e?e[1]=i:C.set(ck,[i,i]);
+    for(const w of new Set(r[3].toLowerCase().split(/[\s.,;:!?"“”‘’()\[\]—-]+/)))if(w){const a=W.get(w);a?a.push(i):W.set(w,[i])}
+  });
+}
+function parseZ(xml,fname){
+  const d=new DOMParser().parseFromString(xml,'text/xml'),out=[];
+  d.querySelectorAll('BIBLEBOOK').forEach(bk=>{const b=+bk.getAttribute('bnumber');
+    bk.querySelectorAll('CHAPTER').forEach(ch=>{const c=+ch.getAttribute('cnumber');
+      ch.querySelectorAll('VERS').forEach(v=>out.push([b,c,+v.getAttribute('vnumber'),v.textContent.replace(/\s+/g,' ').trim()]))})});
+  const t=d.querySelector('INFORMATION title');
+  return{name:(t&&t.textContent.trim())||d.documentElement.getAttribute('biblename')||fname,v:out};
+}
+
+/* state + push to output */
+let S={mode:'full',theme:'t-night',text:'',ref:''};
+function push(){
+  const j=JSON.stringify(S);localStorage.cc_state=j;               // same-device preview / fallback
+  fetch('/push',{method:'POST',body:j}).catch(()=>{});             // APK server -> every screen on the IP
+}
+let cur=null; // {k:'v',i,j} or {k:'s',song,n}
+function showV(i,j=i){
+  const a=V[i];let t='';
+  for(let k=i;k<=j;k++)t+=(j>i?V[k][2]+' ':'')+V[k][3]+' ';
+  S.text=t.trim();S.ref=NAMES[a[0]-1]+' '+a[1]+':'+a[2]+(j>i?'-'+V[j][2]:'');
+  cur={k:'v',i,j};if(S.mode==='blank')S.mode=lastMode;push();
+}
+function showSlide(si,n){
+  const so=songs[si];S.text=so.s[n];S.ref=so.t;cur={k:'s',si,n};if(S.mode==='blank')S.mode=lastMode;push();
+}
+function step(d){
+  if(!cur)return;
+  if(cur.k==='v'){const n=cur.j+d;if(V[n])showV(n);}
+  else{const so=songs[cur.si],n=cur.n+d;if(so.s[n]!==undefined)showSlide(cur.si,n)}
+}
+
+/* the fast search path: reference -> O(1) Map hit; words -> inverted index intersection */
+function find(q){
+  const m=q.match(/^\s*([1-3]?\s*[a-z]+)\s*(\d+)?\s*[:.\s]?\s*(\d+)?\s*(?:-\s*(\d+))?\s*$/i);
+  if(m&&m[2]){const b=book(m[1]),ch=b&&C.get(b+':'+m[2]);
+    if(ch)return{ref:1,ch,v:+m[3]||0,v2:+m[4]||0,b,c:+m[2]}}
+  const ts=q.toLowerCase().split(/\s+/).filter(Boolean);if(!ts.length)return{hits:[]};
+  const ls=ts.map(w=>W.get(w)||[]).sort((a,b)=>a.length-b.length);
+  if(!ls[0].length)return{hits:[]};
+  let hits=ls[0];for(let x=1;x<ls.length;x++){const s=new Set(ls[x]);hits=hits.filter(i=>s.has(i))}
+  return{hits:hits.slice(0,60)};
+}
+function vrow(i,hit){const r=V[i];return `<div class="v${hit?' hit':''}" data-i="${i}"><b>${NAMES[r[0]-1]} ${r[1]}:${r[2]}</b>${r[3]}</div>`}
+let target=null;
+function search(){
+  const q=$('#q').value;if(!q.trim()){$('#res').innerHTML='';target=null;return}
+  const f=find(q);let h='';target=null;
+  if(f.ref){
+    const lo=f.v?K.get(f.b+':'+f.c+':'+f.v):f.ch[0];
+    const hi=f.v2?K.get(f.b+':'+f.c+':'+f.v2):lo;
+    if(lo!==undefined){target=[lo,hi===undefined?lo:hi]}
+    for(let i=f.ch[0];i<=f.ch[1];i++)h+=vrow(i,target&&i>=target[0]&&i<=target[1]&&f.v);
+    $('#res').innerHTML=h;
+    const hit=$('#res .hit');if(hit)hit.scrollIntoView({block:'center'});
+  }else{
+    f.hits.forEach(i=>h+=vrow(i));$('#res').innerHTML=h||'<div class="v"><small>No match</small></div>';
+    if(f.hits.length)target=[f.hits[0],f.hits[0]];
+  }
+}
+$('#q').addEventListener('input',search);
+$('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&target){showV(target[0],target[1]);e.preventDefault()}});
+$('#res').addEventListener('click',e=>{const d=e.target.closest('.v');if(d&&d.dataset.i)showV(+d.dataset.i)});
+$('#next').onclick=()=>step(1);$('#prev').onclick=()=>step(-1);
+addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowRight')step(1);if(e.altKey&&e.key==='ArrowLeft')step(-1)});
+
+/* modes + themes */
+let lastMode='full';
+function mode(m){
+  if(m!=='blank')lastMode=m;S.mode=m;push();
+  ['Full','Lower','Blank'].forEach(n=>$('#m'+n).classList.toggle('on',n.toLowerCase()===(m==='full'?'full':m==='lower'?'lower':'blank')));
+}
+$('#mFull').onclick=()=>mode('full');$('#mLower').onclick=()=>mode('lower');$('#mBlank').onclick=()=>mode('blank');
+$('#theme').onchange=e=>{S.theme=e.target.value;push()};
+
+/* Bibles */
+async function listBibles(sel){
+  const names=JSON.parse(localStorage.cc_bibles||'[]');
+  $('#bible').innerHTML=names.map(n=>`<option>${n}</option>`).join('')||'<option>No Bible yet</option>';
+  if(sel)$('#bible').value=sel;
+}
+async function useBible(n){const d=await idb('get','b:'+n);if(d)load(d)}
+$('#bible').onchange=e=>useBible(e.target.value).then(search);
+$('#imp').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  $('#res').innerHTML='<div class="v"><small>Indexing…</small></div>';
+  const p=parseZ(await f.text(),f.name.replace(/\.xml$/i,''));
+  if(!p.v.length){$('#res').innerHTML='<div class="v">That file has no Zefania verses (BIBLEBOOK/CHAPTER/VERS).</div>';return}
+  await idb('put','b:'+p.name,p.v);
+  const names=JSON.parse(localStorage.cc_bibles||'[]');if(!names.includes(p.name))names.push(p.name);
+  localStorage.cc_bibles=JSON.stringify(names);load(p.v);await listBibles(p.name);
+  $('#res').innerHTML='<div class="v"><small>'+p.v.length+' verses loaded.</small></div>';
+};
+
+/* Songs */
+let songs=JSON.parse(localStorage.cc_songs||'[]');
+function drawSongs(){
+  $('#songs').innerHTML=songs.map((s,i)=>`<option value="${i}">${s.t.replace(/</g,'&lt;')}</option>`).join('')||'<option>No songs yet</option>';
+  drawSlides();
+}
+function drawSlides(){
+  const s=songs[+$('#songs').value];
+  $('#slides').innerHTML=s?s.s.map((t,n)=>`<div class="v" data-n="${n}">${t.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>`).join(''):'';
+}
+$('#songs').onchange=drawSlides;
+$('#slides').onclick=e=>{const d=e.target.closest('.v');if(d)showSlide(+$('#songs').value,+d.dataset.n)};
+$('#ss').onclick=()=>{
+  const t=$('#st').value.trim(),s=$('#sl').value.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+  if(!t||!s.length)return;songs.push({t,s});localStorage.cc_songs=JSON.stringify(songs);
+  $('#st').value=$('#sl').value='';drawSongs();$('#songs').value=songs.length-1;drawSlides();
+};
+$('#tS').onclick=()=>{$('#pS').classList.remove('hide');$('#pL').classList.add('hide');$('#tS').classList.add('on');$('#tL').classList.remove('on')};
+$('#tL').onclick=()=>{$('#pL').classList.remove('hide');$('#pS').classList.add('hide');$('#tL').classList.add('on');$('#tS').classList.remove('on')};
+
+/* boot */
+$('#url').textContent='Output screen: '+location.origin.replace('localhost','<phone-ip>')+'/output';
+drawSongs();
+(async()=>{await listBibles();const n=$('#bible').value;if(n&&n!=='No Bible yet')await useBible(n);push()})();
+}
+</script>
+</body></html>
+      
