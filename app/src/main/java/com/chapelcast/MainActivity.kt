@@ -5,9 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.*
-import android.widget.Toast
 import fi.iki.elonen.NanoHTTPD
+import java.io.File
+import java.io.FileInputStream
+import java.net.HttpURLConnection
 import java.net.NetworkInterface
+import java.net.URL
+import java.util.zip.ZipInputStream
 
 fun findIp(): String {
     val addrs = NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp }
@@ -29,15 +33,48 @@ class Server(private val act: Activity, port: Int) : NanoHTTPD(port) {
             state = body["postData"] ?: state
             return newFixedLengthResponse("ok")
         }
-        // the phone itself gets the controller; every other device gets the output screen
-        val local = s.remoteIpAddress == "127.0.0.1"
+        if (s.uri == "/dl") {
+            val f = File(act.cacheDir, "dl.xml")
+            return newChunkedResponse(Response.Status.OK, "text/plain; charset=utf-8", FileInputStream(f))
+        }
+        val ra = s.remoteIpAddress ?: ""
+        val local = ra == "127.0.0.1" || ra == "::1" || ra.startsWith("0:0:0:0:0:0:0:1") || ra == findIp()
         val html = if (local && s.uri != "/output") page
         else page.replace("const OUT=/output|view=output/.test(location.href);", "const OUT=true;")
         return newFixedLengthResponse(Response.Status.OK, "text/html", html)
     }
 }
 
-class Bridge { @JavascriptInterface fun ip(): String = findIp() }
+class Bridge(private val dir: File) {
+    @Volatile private var st = "idle"
+    @JavascriptInterface fun ip(): String = findIp()
+    @JavascriptInterface fun status(): String = st
+    @JavascriptInterface fun download(url: String) {
+        st = "busy"
+        Thread {
+            try {
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.connectTimeout = 15000
+                c.readTimeout = 60000
+                c.instanceFollowRedirects = true
+                if (c.responseCode !in 200..299) throw Exception("HTTP " + c.responseCode)
+                val bytes = c.inputStream.use { it.readBytes() }
+                val out = File(dir, "dl.xml")
+                if (bytes.size > 3 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
+                    ZipInputStream(bytes.inputStream()).use { z ->
+                        var e = z.nextEntry
+                        while (e != null && !e.name.lowercase().endsWith(".xml")) e = z.nextEntry
+                        if (e == null) throw Exception("No XML file inside the zip")
+                        out.writeBytes(z.readBytes())
+                    }
+                } else out.writeBytes(bytes)
+                st = "done"
+            } catch (e: Exception) {
+                st = "error: " + (e.message ?: e.javaClass.simpleName)
+            }
+        }.start()
+    }
+}
 
 class MainActivity : Activity() {
     private lateinit var server: Server
@@ -49,7 +86,7 @@ class MainActivity : Activity() {
         val wv = WebView(this)
         wv.settings.javaScriptEnabled = true
         wv.settings.domStorageEnabled = true
-        wv.addJavascriptInterface(Bridge(), "Android")
+        wv.addJavascriptInterface(Bridge(cacheDir), "Android")
         wv.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(w: WebView, c: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
                 cb?.onReceiveValue(null); cb = c
